@@ -13,7 +13,6 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import streamlit as st
-import asyncio
 import yaml
 from datetime import datetime
 from typing import Dict, Any
@@ -54,7 +53,7 @@ def initialize_session_state():
     if 'show_safety_log' not in st.session_state:
         st.session_state.show_safety_log = False
 
-async def process_query(query: str) -> Dict[str, Any]:
+def process_query(query: str) -> Dict[str, Any]:
     """
     Process a query through the orchestrator.
     
@@ -205,29 +204,30 @@ def display_response(result: Dict[str, Any]):
             for i, citation in enumerate(citations, 1):
                 st.markdown(f"**[{i}]** {citation}")
 
-    # Display metadata
+    # Display metadata — skip quality metrics for blocked queries
     metadata = result.get("metadata", {})
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Sources Used", metadata.get("num_sources", 0))
-    with col2:
-        score = metadata.get("critique_score", 0)
-        st.metric("Quality Score", f"{score:.2f}")
+    if not metadata.get("blocked"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Sources Used", metadata.get("num_sources", 0))
+        with col2:
+            score = metadata.get("critique_score", 0)
+            st.metric("Quality Score", f"{score:.2f}")
 
-    # Safety events
+    # Safety events — show blocked/sanitized notices using pre-formatted event dicts
+    # from safety_manager.get_recent_events() (already in metadata["safety_events"])
     safety_events = metadata.get("safety_events", [])
-    if safety_events:
-        with st.expander("⚠️ Safety Events", expanded=True):
-            for event in safety_events:
-                event_type = event.get("type", "unknown")
-                action = event.get("action", "allow")
-                violations = event.get("violations", [])
-                st.warning(
-                    f"{event_type.upper()} ({action.upper()}): "
-                    f"{len(violations)} violation(s) detected"
-                )
-                for violation in violations:
-                    st.text(f"  • {violation.get('reason', 'Unknown')}")
+    blocking_events = [e for e in safety_events if not e.get("safe")]
+    if blocking_events:
+        with st.expander("🛡️ Safety Events", expanded=True):
+            for event in blocking_events:
+                icon = event.get("icon", "⚠️")
+                summary = event.get("summary", "")
+                action = event.get("action", "")
+                st.warning(f"{icon} **{summary}** — {action}")
+                for detail in event.get("details", []):
+                    if detail:
+                        st.caption(f"  • {detail}")
 
     # Agent traces
     if st.session_state.show_traces:
@@ -245,13 +245,15 @@ def display_agent_traces(traces: Dict[str, Any]):
     - Show agent workflow
     - Display timing information
     """
+    agent_icons = {"Planner": "🗺️", "Researcher": "🔍", "Writer": "✍️", "Critic": "⚖️"}
     with st.expander("🔍 Agent Traces", expanded=False):
         for agent_name, actions in traces.items():
-            st.markdown(f"**{agent_name.upper()}**")
-            for action in actions:
-                action_type = action.get("action_type", "unknown")
-                details = action.get("details", {})
-                st.text(f"  → {action_type}: {details}")
+            icon = agent_icons.get(agent_name, "🤖")
+            with st.expander(f"{icon} {agent_name}", expanded=False):
+                for i, action in enumerate(actions, 1):
+                    details = action.get("details", "")
+                    preview = details[:300] + "..." if len(details) > 300 else details
+                    st.markdown(f"**Turn {i}:** {preview}")
 
 
 def display_sidebar():
@@ -278,6 +280,12 @@ def display_sidebar():
         # TODO: Get actual statistics
         st.metric("Total Queries", len(st.session_state.history))
         st.metric("Safety Events", 0)  # TODO: Get from safety manager
+        try:
+            stats = st.session_state.orchestrator.safety_manager.get_safety_stats()
+            st.metric("Safety Violations", stats.get("violations", 0))
+            st.metric("Input Checks", stats.get("input_checks", 0))
+        except Exception:
+            pass
 
         st.divider()
 
@@ -341,7 +349,7 @@ def main():
             if query.strip():
                 with st.spinner("Processing your query..."):
                     # Process query
-                    result = asyncio.run(process_query(query))
+                    result = process_query(query)
 
                     # Add to history
                     st.session_state.history.append({
@@ -394,7 +402,23 @@ def main():
         st.divider()
         st.markdown("### 🛡️ Safety Event Log")
         # TODO: Display safety events from safety manager
-        st.info("No safety events recorded.")
+        try:
+            orchestrator = st.session_state.orchestrator
+            events = orchestrator.safety_manager.get_formatted_events()
+            if events:
+                for e in reversed(events[-20:]):
+                    ts = e.get("timestamp", "")[:19].replace("T", " ")
+                    icon = e.get("icon", "ℹ️")
+                    label = e.get("label", "")
+                    summary = e.get("summary", "")
+                    st.markdown(f"{icon} `{ts}` — **{label}** — {summary}")
+                    for detail in e.get("details", []):
+                        if detail:
+                            st.caption(f"  • {detail}")
+            else:
+                st.info("No safety events recorded.")
+        except Exception:
+            st.info("No safety events recorded.")
 
 
 if __name__ == "__main__":

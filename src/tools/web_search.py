@@ -215,30 +215,48 @@ class WebSearchTool:
 def web_search(query: str, provider: str = "tavily", max_results: int = 5) -> str:
     """
     Synchronous wrapper for web search (for AutoGen tool integration).
-    
+
+    Handles being called from both sync and async contexts. AutoGen executes
+    tool functions inside an already-running event loop, so asyncio.run() would
+    raise "This event loop is already running." We detect that case and fall back
+    to running the coroutine in a fresh thread with its own loop.
+
     Args:
         query: Search query
         provider: "tavily" or "brave"
         max_results: Maximum results to return
-        
+
     Returns:
-        Formatted string with search results
+        Formatted string with search results ready for the Researcher agent
     """
+    import concurrent.futures
+
     tool = WebSearchTool(provider=provider, max_results=max_results)
-    results = asyncio.run(tool.search(query))
-    
+
+    try:
+        asyncio.get_running_loop()
+        # Already inside a running loop (e.g. AutoGen async context) —
+        # run the coroutine in a background thread with its own loop
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            results = pool.submit(asyncio.run, tool.search(query)).result()
+    except RuntimeError:
+        # No running loop — safe to call asyncio.run() directly
+        results = asyncio.run(tool.search(query))
+
     if not results:
-        return "No search results found."
-    
-    # Format results as readable text
-    output = f"Found {len(results)} web search results for '{query}':\n\n"
-    
+        return f"No web search results found for '{query}'."
+
+    # Format results using [Source N] markers the Researcher agent is
+    # instructed to use when reporting findings
+    lines = [f"Web search results for '{query}' ({len(results)} results):\n"]
     for i, result in enumerate(results, 1):
-        output += f"{i}. {result['title']}\n"
-        output += f"   URL: {result['url']}\n"
-        output += f"   {result['snippet']}\n"
-        if result.get('published_date'):
-            output += f"   Published: {result['published_date']}\n"
-        output += "\n"
-    
-    return output
+        lines.append(f"[Source {i}] {result['title']}")
+        lines.append(f"URL: {result['url']}")
+        if result.get("published_date"):
+            lines.append(f"Published: {result['published_date']}")
+        snippet = result.get("snippet", "").strip()
+        if snippet:
+            lines.append(f"Summary: {snippet}")
+        lines.append("")  # blank line between results
+
+    return "\n".join(lines)

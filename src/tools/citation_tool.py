@@ -343,7 +343,177 @@ class CitationTool:
 
         return bibliography
 
+    def format_inline(self, source: Dict[str, Any]) -> str:
+        """
+        Format a source as an inline citation for use inside running text.
+
+        Produces the short [Author, Year] form the Writer uses, e.g.:
+            [Smith et al., 2022]
+            [Nielsen, 1994]
+            [ACM CHI, 2023]   ← fallback when no authors
+
+        Args:
+            source: Source information dictionary (same schema as format_citation)
+
+        Returns:
+            Inline citation string, e.g. "[Smith et al., 2022]"
+        """
+        authors = source.get("authors", [])
+        year = source.get("year", "n.d.")
+
+        if authors:
+            first = authors[0].get("name", "")
+            parts = first.strip().split()
+            last_name = parts[-1] if parts else first
+            if len(authors) > 1:
+                author_str = f"{last_name} et al."
+            else:
+                author_str = last_name
+        else:
+            # Fall back to site name or a shortened title
+            author_str = source.get("site_name") or source.get("title", "Unknown")[:30]
+
+        return f"[{author_str}, {year}]"
+
+    def format_references_section(self) -> str:
+        """
+        Generate a markdown References section from all tracked citations.
+
+        Returns a block ready to append to the Writer's report:
+
+            ## References
+            [1] Smith, J. (2022). Title. Venue. https://...
+            [2] ...
+
+        Returns:
+            Markdown string with numbered reference list
+        """
+        if not self.citations:
+            return "## References\n\nNo sources cited."
+
+        lines = ["## References\n"]
+        for i, source in enumerate(self.citations, 1):
+            lines.append(f"[{i}] {self.format_citation(source)}")
+
+        return "\n".join(lines)
+
+    def parse_sources_from_research(self, research_text: str) -> List[Dict[str, Any]]:
+        """
+        Parse [Source N] blocks written by the Researcher agent into structured
+        citation dictionaries that can be tracked and formatted.
+
+        Expects lines in the form produced by web_search / paper_search:
+            [Source 1] Title — Author (Year)
+            URL: https://...
+            Authors: First Last (Year) | Venue | Citations: N
+            Abstract: ...
+
+        Args:
+            research_text: Raw text output from the Researcher agent
+
+        Returns:
+            List of source dicts (title, url, authors, year, venue, type)
+        """
+        sources = []
+        # Split on [Source N] markers
+        blocks = re.split(r'\[Source\s+\d+\]', research_text)
+
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+
+            source: Dict[str, Any] = {"type": "article", "authors": []}
+
+            lines = block.splitlines()
+
+            # First non-empty line is the title (possibly "Title — Author (Year)")
+            if lines:
+                first = lines[0].strip()
+                # Strip em-dash author suffix if present: "Title — Author (Year)"
+                title_part = re.split(r'\s+[—–-]{1,2}\s+', first)[0].strip()
+                source["title"] = title_part
+
+            for line in lines[1:]:
+                line = line.strip()
+                if not line:
+                    continue
+
+                lower = line.lower()
+
+                if lower.startswith("url:"):
+                    url = line[4:].strip()
+                    source["url"] = url
+                    # Treat as webpage if not a known academic domain
+                    if not any(d in url for d in ["semanticscholar", "arxiv", "doi.org", "acm.org", "ieee.org"]):
+                        source["type"] = "webpage"
+
+                elif lower.startswith("pdf:"):
+                    source["pdf_url"] = line[4:].strip()
+
+                elif lower.startswith("authors:"):
+                    # "Authors: First Last, Second Name (2022) | Venue | Citations: N"
+                    authors_raw = line[8:].strip()
+                    # Extract year from parentheses
+                    year_match = re.search(r'\((\d{4})\)', authors_raw)
+                    if year_match:
+                        source["year"] = int(year_match.group(1))
+                    # Extract venue (between | separators)
+                    parts = authors_raw.split("|")
+                    if len(parts) >= 2:
+                        venue_part = parts[1].strip()
+                        if not venue_part.lower().startswith("citations"):
+                            source["venue"] = venue_part
+                    # Parse author names (before the year parenthesis)
+                    names_part = re.split(r'\s*\(', authors_raw)[0]
+                    for name in re.split(r',\s*(?:and\s+)?', names_part):
+                        name = name.replace("et al.", "").strip()
+                        if name:
+                            source["authors"].append({"name": name})
+
+                elif lower.startswith("published:"):
+                    raw = line[10:].strip()
+                    year_match = re.search(r'(\d{4})', raw)
+                    if year_match and "year" not in source:
+                        source["year"] = int(year_match.group(1))
+
+                elif lower.startswith("abstract:") or lower.startswith("summary:"):
+                    source["abstract"] = line.split(":", 1)[1].strip()
+
+            if source.get("title"):
+                sources.append(source)
+
+        return sources
+
     def clear_citations(self):
         """Clear all citations."""
         self.citations = []
         self.citation_counter = 0
+
+
+# Standalone function for AutoGen tool integration
+def format_citations(research_text: str, style: str = "apa") -> str:
+    """
+    Parse sources from Researcher output and return a formatted References section.
+
+    This is the AutoGen-callable wrapper. Pass in the Researcher's full text
+    output; it will extract all [Source N] blocks, deduplicate them, and return
+    a numbered References section ready to append to the Writer's report.
+
+    Args:
+        research_text: Raw text from the Researcher agent containing [Source N] blocks
+        style: Citation style — "apa" (default) or "mla"
+
+    Returns:
+        Formatted References section as a markdown string
+    """
+    tool = CitationTool(style=style)
+    sources = tool.parse_sources_from_research(research_text)
+
+    if not sources:
+        return "No sources could be parsed from the research text."
+
+    for source in sources:
+        tool.add_citation(source)
+
+    return tool.format_references_section()

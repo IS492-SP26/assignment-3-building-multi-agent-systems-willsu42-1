@@ -44,31 +44,45 @@ async def run_evaluation():
     print("Initializing AutoGen orchestrator...")
     orchestrator = AutoGenOrchestrator(config)
     
-    # For now, run a simple test query
     # TODO: Integrate with SystemEvaluator for full evaluation
-    # Suggested implementation:
     # - Import SystemEvaluator from src/evaluation/evaluator.py
     # - Load test queries from data/example_queries.json
     # - Run batch evaluation and print/save the report summary
+    from src.evaluation.evaluator import SystemEvaluator
+
+    evaluator = SystemEvaluator(config, orchestrator=orchestrator)
+
     print("\n" + "=" * 70)
-    print("RUNNING TEST QUERY")
+    print("RUNNING BATCH EVALUATION")
     print("=" * 70)
-    
-    test_query = "What are the key principles of accessible user interface design?"
-    print(f"\nQuery: {test_query}\n")
-    
-    result = orchestrator.process_query(test_query)
-    
+
+    report = await evaluator.evaluate_system("data/example_queries.json")
+
     print("\n" + "=" * 70)
-    print("RESULTS")
+    print("EVALUATION RESULTS")
     print("=" * 70)
-    print(f"\nResponse:\n{result.get('response', 'No response generated')}")
-    print(f"\nMetadata:")
-    print(f"  - Messages: {result.get('metadata', {}).get('num_messages', 0)}")
-    print(f"  - Sources: {result.get('metadata', {}).get('num_sources', 0)}")
-    
-    print("\n" + "=" * 70)
-    print("Note: Full evaluation with SystemEvaluator can be implemented")
+
+    summary = report.get("summary", {})
+    print(f"\nTotal Queries:  {summary.get('total_queries', 0)}")
+    print(f"Successful:     {summary.get('successful', 0)}")
+    print(f"Failed:         {summary.get('failed', 0)}")
+    print(f"Success Rate:   {summary.get('success_rate', 0.0):.2%}")
+
+    scores = report.get("scores", {})
+    print(f"\nOverall Average Score: {scores.get('overall_average', 0.0):.3f}\n")
+
+    print("Scores by Criterion:")
+    for criterion, score in scores.get("by_criterion", {}).items():
+        print(f"  {criterion}: {score:.3f}")
+
+    best = report.get("best_result")
+    worst = report.get("worst_result")
+    if best:
+        print(f"\nBest Query:  \"{best['query'][:60]}...\"  ({best['score']:.3f})")
+    if worst:
+        print(f"Worst Query: \"{worst['query'][:60]}...\"  ({worst['score']:.3f})")
+
+    print("\nDetailed results saved to outputs/")
     print("=" * 70)
 
 

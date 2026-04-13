@@ -171,6 +171,21 @@ class CLI:
         print(f"  Topic: {self.config.get('system', {}).get('topic', 'Unknown')}")
         print(f"  Model: {self.config.get('models', {}).get('default', {}).get('name', 'Unknown')}")
 
+        # Safety stats from the safety manager
+        try:
+            stats = self.orchestrator.safety_manager.get_safety_stats()
+            print(f"\n  Safety Checks:")
+            print(f"    Input checks:    {stats.get('input_checks', 0)}")
+            print(f"    Output checks:   {stats.get('output_checks', 0)}")
+            print(f"    Violations:      {stats.get('violations', 0)}")
+            by_cat = stats.get("by_category", {})
+            if by_cat:
+                print(f"    By category:")
+                for cat, count in by_cat.items():
+                    print(f"      {cat.replace('_', ' ').title()}: {count}")
+        except Exception:
+            pass
+
     def _display_result(self, result: Dict[str, Any]):
         """Display query result with formatting."""
         print("\n" + "=" * 70)
@@ -180,6 +195,14 @@ class CLI:
         # Check for errors
         if "error" in result:
             print(f"\n❌ Error: {result['error']}")
+            return
+
+        # Check if query was blocked by input guardrail before agents ran
+        if result.get("metadata", {}).get("blocked"):
+            blocked_cat = result["metadata"].get("blocked_category", "policy violation")
+            print(f"\n🚫 Request blocked — {blocked_cat.replace('_', ' ').title()}")
+            print(f"\n{result.get('response', '')}\n")
+            self._display_safety_events(result.get("metadata", {}))
             return
 
         # Display response
@@ -209,6 +232,7 @@ class CLI:
             # - Read safety metadata returned by the orchestrator
             # - Print which policy category was triggered
             # - Show whether the response was refused or sanitized
+            self._display_safety_events(metadata)
 
         # Display conversation summary if verbose mode
         if self._should_show_traces():
@@ -216,6 +240,35 @@ class CLI:
 
         print("=" * 70 + "\n")
     
+    def _display_safety_events(self, metadata: Dict[str, Any]):
+        """Display safety events and refusal/sanitization status from metadata."""
+        # Output-level safety (sanitized or refused after generation)
+        if not metadata.get("output_safe", True):
+            output_violations = metadata.get("output_violations", [])
+            categories = {v.get("category", "") for v in output_violations}
+            if "pii" in categories:
+                print("  ⚠️  Safety: Personal information was redacted from the response.")
+            if "harmful_content" in categories or "personal_attacks" in categories:
+                print("  🚫 Safety: Response withheld — unsafe content detected.")
+            if "misinformation" in categories:
+                print("  ⚠️  Safety: Some citations could not be verified against sources.")
+
+        # Recent safety events from the safety manager log
+        safety_events = metadata.get("safety_events", [])
+        blocking = [e for e in safety_events if not e.get("safe")]
+        if blocking:
+            print("\n" + "-" * 70)
+            print("🛡️  SAFETY EVENTS")
+            print("-" * 70)
+            for event in blocking:
+                icon = event.get("icon", "⚠️")
+                summary = event.get("summary", "")
+                ts = event.get("timestamp", "")[:19].replace("T", " ")
+                print(f"  {icon} [{ts}] {summary}")
+                for detail in event.get("details", [])[:2]:
+                    if detail:
+                        print(f"       {detail}")
+
     def _extract_citations(self, result: Dict[str, Any]) -> list:
         """Extract citations/URLs from conversation history."""
         citations = []

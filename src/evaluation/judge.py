@@ -281,43 +281,48 @@ Be objective and precise. Your output must be valid JSON only — no additional 
         """
         Call LLM API to get judgment.
         Uses model configuration from config.yaml (models.judge section).
+        Retries up to 3 times with exponential backoff on rate-limit errors.
         """
         if not self.client:
             raise ValueError("Groq client not initialized. Check GROQ_API_KEY environment variable.")
-        
-        try:
-            # Load model settings from config.yaml (models.judge)
-            model_name = self.model_config.get("name", "llama-3.1-8b-instant")
-            temperature = self.model_config.get("temperature", 0.3)
-            max_tokens = self.model_config.get("max_tokens", 1024)
-            
-            self.logger.debug(f"Calling Groq API with model: {model_name}")
-            
-            # Call Groq API (pattern from Lab 5)
-            chat_completion = self.client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert evaluator. Provide your evaluations in valid JSON format."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                model=model_name,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            
-            response = chat_completion.choices[0].message.content
-            self.logger.debug(f"Received response: {response[:100]}...")
-            
-            return response
-            
-        except Exception as e:
-            self.logger.error(f"Error calling Groq API: {e}")
-            raise
+
+        import time
+
+        model_name = self.model_config.get("name", "llama-3.1-8b-instant")
+        temperature = self.model_config.get("temperature", 0.3)
+        max_tokens = self.model_config.get("max_tokens", 1024)
+
+        for attempt in range(3):
+            try:
+                self.logger.debug(f"Calling Groq API with model: {model_name} (attempt {attempt + 1})")
+                chat_completion = self.client.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert evaluator. Provide your evaluations in valid JSON format."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    model=model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                response = chat_completion.choices[0].message.content
+                self.logger.debug(f"Received response: {response[:100]}...")
+                return response
+
+            except Exception as e:
+                is_rate_limit = "rate_limit_exceeded" in str(e) or "429" in str(e)
+                if is_rate_limit and attempt < 2:
+                    wait = 15 * (attempt + 1)  # 15s, then 30s
+                    self.logger.warning(f"Rate limit hit, retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    self.logger.error(f"Error calling Groq API: {e}")
+                    raise
 
     def _parse_judgment(self, judgment: str) -> tuple:
         """

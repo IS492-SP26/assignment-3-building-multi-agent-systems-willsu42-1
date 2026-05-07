@@ -149,8 +149,10 @@ class AutoGenOrchestrator:
         Returns:
             Dictionary containing results
         """
-        # Reset team state so previous query history doesn't bleed in
-        await self.team.reset()
+        # Recreate the team for each query — reset() does not fully clear
+        # error state after a GroupChatError, causing subsequent queries to fail.
+        from src.agents.autogen_agents import create_research_team
+        self.team = create_research_team(self.config)
 
         # Task message directs each agent clearly so the round-robin order
         # maps cleanly onto the intended workflow

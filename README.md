@@ -134,3 +134,7 @@ By default, this path only runs a simple test query until students complete the 
 - [Semantic Scholar API](https://api.semanticscholar.org/)
 - [Guardrails AI](https://docs.guardrailsai.com/)
 - [NeMo Guardrails](https://docs.nvidia.com/nemo/guardrails/)
+
+## Demo  
+UI
+<img width="1506" height="798" alt="image" src="https://github.com/user-attachments/assets/8fcd287b-1ea4-4c54-b295-53da4d1e5403" />

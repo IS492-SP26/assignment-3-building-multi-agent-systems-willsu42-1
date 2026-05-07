@@ -33,25 +33,46 @@ def load_config():
     return {}
 
 
+def _provider_display(provider: str) -> str:
+    """Return a human-readable model description from config."""
+    config = load_config()
+    model_name = config.get("models", {}).get(provider, {}).get("name", provider)
+    return model_name.split("/")[-1]  # e.g. "Qwen3-8B" or "llama-4-scout-17b-16e-instruct"
+
+
+def build_config_for_provider(base_config: Dict[str, Any], provider: str) -> Dict[str, Any]:
+    """Return a copy of base_config with active_provider set to the chosen provider."""
+    import copy
+    config = copy.deepcopy(base_config)
+    config.setdefault("models", {})["active_provider"] = provider
+    return config
+
+
 def initialize_session_state():
     """Initialize Streamlit session state."""
     if 'history' not in st.session_state:
         st.session_state.history = []
 
-    if 'orchestrator' not in st.session_state:
-        config = load_config()
-        # Initialize AutoGen orchestrator
-        try:
-            st.session_state.orchestrator = AutoGenOrchestrator(config)
-        except Exception as e:
-            st.error(f"Failed to initialize orchestrator: {e}")
-            st.session_state.orchestrator = None
+    if 'selected_provider' not in st.session_state:
+        base = load_config()
+        st.session_state.selected_provider = (
+            base.get("models", {}).get("default", {}).get("provider", "groq")
+        )
 
     if 'show_traces' not in st.session_state:
         st.session_state.show_traces = False
 
     if 'show_safety_log' not in st.session_state:
         st.session_state.show_safety_log = False
+
+    if 'orchestrator' not in st.session_state:
+        base_config = load_config()
+        config = build_config_for_provider(base_config, st.session_state.selected_provider)
+        try:
+            st.session_state.orchestrator = AutoGenOrchestrator(config)
+        except Exception as e:
+            st.error(f"Failed to initialize orchestrator: {e}")
+            st.session_state.orchestrator = None
 
 def process_query(query: str) -> Dict[str, Any]:
     """
@@ -261,6 +282,33 @@ def display_sidebar():
     with st.sidebar:
         st.title("⚙️ Settings")
 
+        # Model selector
+        st.markdown("**Model Provider**")
+        col_groq, col_openai = st.columns(2)
+        with col_groq:
+            if st.button(
+                "Groq",
+                type="primary" if st.session_state.selected_provider == "groq" else "secondary",
+                use_container_width=True,
+            ):
+                if st.session_state.selected_provider != "groq":
+                    st.session_state.selected_provider = "groq"
+                    st.session_state.pop("orchestrator", None)
+                    st.rerun()
+        with col_openai:
+            if st.button(
+                "OpenAI",
+                type="primary" if st.session_state.selected_provider == "vllm" else "secondary",
+                use_container_width=True,
+            ):
+                if st.session_state.selected_provider != "vllm":
+                    st.session_state.selected_provider = "vllm"
+                    st.session_state.pop("orchestrator", None)
+                    st.rerun()
+        st.caption(f"Active: {_provider_display(st.session_state.selected_provider)}")
+
+        st.divider()
+
         # Show traces toggle
         st.session_state.show_traces = st.checkbox(
             "Show Agent Traces",
@@ -328,7 +376,7 @@ def main():
 
     # Header
     st.title("🤖 Multi-Agent Research Assistant")
-    st.markdown("Ask me anything about your research topic!")
+    st.markdown(f"Ask me anything about your research topic! &nbsp; `Model: {_provider_display(st.session_state.selected_provider)}`")
 
     # Sidebar
     display_sidebar()
@@ -347,20 +395,38 @@ def main():
         # Submit button
         if st.button("🔍 Search", type="primary", use_container_width=True):
             if query.strip():
-                with st.spinner("Processing your query..."):
-                    # Process query
+                provider = st.session_state.selected_provider
+                model_desc = _provider_display(provider)
+                agent_steps = [
+                    ("🗺️", "Planner",    "Breaking down your query…"),
+                    ("🔍", "Researcher", "Gathering evidence…"),
+                    ("✍️", "Writer",     "Synthesizing findings…"),
+                    ("⚖️", "Critic",     "Reviewing quality…"),
+                ]
+                with st.status(
+                    f"Processing with {model_desc} — this may take a minute…",
+                    expanded=True,
+                ) as status:
+                    for icon, name, desc in agent_steps:
+                        status.write(f"{icon} **{name}**: {desc}")
+
                     result = process_query(query)
 
-                    # Add to history
-                    st.session_state.history.append({
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "query": query,
-                        "result": result
-                    })
+                    if "error" not in result:
+                        status.update(label="✅ Done!", state="complete", expanded=False)
+                    else:
+                        status.update(label="❌ Error during processing", state="error", expanded=True)
 
-                    # Display result
-                    st.divider()
-                    display_response(result)
+                # Add to history
+                st.session_state.history.append({
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "query": query,
+                    "result": result
+                })
+
+                # Display result
+                st.divider()
+                display_response(result)
             else:
                 st.warning("Please enter a query.")
 

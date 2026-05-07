@@ -21,27 +21,42 @@ from src.tools.web_search import web_search
 from src.tools.paper_search import paper_search
 
 
+def _active_provider(config: Dict[str, Any]) -> str:
+    models = config.get("models", {})
+    return models.get("active_provider") or models.get("default_provider", "groq")
+
+
+
+
 def create_model_client(config: Dict[str, Any]) -> OpenAIChatCompletionClient:
     """
     Create model client for AutoGen agents.
-    
+
+    Reads provider settings from config["models"][provider] (e.g. models.groq or
+    models.vllm), falling back to models.default for backwards compatibility.
+
     Args:
         config: Configuration dictionary from config.yaml
-        
+
     Returns:
         OpenAIChatCompletionClient configured for the specified provider
     """
-    model_config = config.get("models", {}).get("default", {})
-    provider = model_config.get("provider", "groq")
-    
-    # Groq configuration (uses OpenAI-compatible API)
+    models = config.get("models", {})
+
+    # Resolve which provider to use: explicit active_provider key (set by UI at
+    # runtime via build_config_for_provider) → default_provider from config →
+    # fall back to "groq".
+    provider = models.get("active_provider") or models.get("default_provider", "groq")
+
+    # Load provider-specific settings; fall back to legacy models.default key
+    model_config = models.get(provider) or models.get("default", {})
+
     if provider == "groq":
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("GROQ_API_KEY not found in environment")
-        
         return OpenAIChatCompletionClient(
-            model=model_config.get("name", "llama-3.3-70b-versatile"),
+            model=model_config.get("name", "meta-llama/llama-4-scout-17b-16e-instruct"),
             api_key=api_key,
             base_url="https://api.groq.com/openai/v1",
             # Disable parallel tool calls — Groq's llama models sometimes generate
@@ -54,20 +69,7 @@ def create_model_client(config: Dict[str, Any]) -> OpenAIChatCompletionClient:
                 "function_calling": True,
                 "structured_output": False,
                 "family": ModelFamily.UNKNOWN,
-            }
-        )
-    
-    # OpenAI configuration
-    elif provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_BASE_URL")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
-        
-        return OpenAIChatCompletionClient(
-            model=model_config.get("name", "gpt-4o-mini"),
-            api_key=api_key,
-            base_url=base_url,
+            },
         )
 
     elif provider == "vllm":
@@ -75,20 +77,39 @@ def create_model_client(config: Dict[str, Any]) -> OpenAIChatCompletionClient:
         base_url = os.getenv("OPENAI_BASE_URL")
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment")
-        
+        max_tokens = model_config.get("max_tokens", 1024)
+        return OpenAIChatCompletionClient(
+            model=model_config.get("name", "Qwen/Qwen3-8B"),
+            api_key=api_key,
+            base_url=base_url,
+            parallel_tool_calls=False,
+            max_tokens=max_tokens,
+            # 60-second per-call HTTP timeout — prevents indefinite hangs when
+            # the vLLM server is under load.
+            timeout=60,
+            # Disable Qwen3 chain-of-thought thinking via the vLLM chat template.
+            # Without this the model spends its token budget on <think> blocks.
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            model_info={
+                "vision": False,
+                "function_calling": False,
+                "json_output": False,
+                "family": ModelFamily.UNKNOWN,
+                "structured_output": False,
+            },
+        )
+
+    elif provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        base_url = os.getenv("OPENAI_BASE_URL")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment")
         return OpenAIChatCompletionClient(
             model=model_config.get("name", "gpt-4o-mini"),
             api_key=api_key,
             base_url=base_url,
-            model_info={
-                "vision": False,
-                "function_calling": True,
-                "json_output": True,
-                "family": ModelFamily.GPT_4O,
-                "structured_output": True,
-            },
         )
-    
+
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -131,6 +152,7 @@ After delivering the plan, end your message with: PLAN COMPLETE"""
     else:
         system_message = default_system_message
 
+
     planner = AssistantAgent(
         name="Planner",
         model_client=model_client,
@@ -156,9 +178,14 @@ def create_researcher_agent(config: Dict[str, Any], model_client: OpenAIChatComp
         AutoGen AssistantAgent configured as a researcher with tool access
     """
     agent_config = config.get("agents", {}).get("researcher", {})
-    
-    # Load system prompt from config or use default
-    default_system_message = """You are a Research Specialist in Human-Computer Interaction (HCI).
+    provider = _active_provider(config)
+
+    # vLLM (Qwen3) deployment does not have --enable-auto-tool-choice /
+    # --tool-call-parser set, so it rejects any request that includes tools.
+    # For that provider we fall back to a knowledge-based researcher prompt.
+    use_tools = (provider != "vllm")
+
+    default_system_message_tools = """You are a Research Specialist in Human-Computer Interaction (HCI).
 
 Your responsibility: Follow the Planner's research plan and gather evidence using your two tools.
 
@@ -166,48 +193,68 @@ Tools you have access to:
 - web_search(query): searches the web for articles, blog posts, and practitioner resources
 - paper_search(query, year_from): searches Semantic Scholar for peer-reviewed academic papers
 
-How to conduct research:
-1. Read the Planner's plan carefully and execute each search query it specifies
-2. Call web_search() for at least 2-3 queries to gather practitioner and news sources
-3. Call paper_search() for at least 2-3 queries to gather academic papers; use year_from=2019 to prioritize recent work
-4. For each result, extract: title, authors/source, year, key findings, and URL
-5. Aim to collect 8-10 unique, high-quality sources total
-6. Do not summarize or synthesize — just report the raw findings clearly with full source details
+You MUST call tools in this exact sequence before writing anything:
+1. Call web_search() using the first web search query from the Planner's plan.
+2. Call web_search() using the second web search query from the Planner's plan.
+3. Call web_search() using the third web search query from the Planner's plan.
+4. Call paper_search() using the first academic query from the Planner's plan, with year_from=2019.
+5. Call paper_search() using the second academic query from the Planner's plan, with year_from=2019.
 
-Format each source as:
+Only after all 5 tool calls are done, write your findings report using this format for each source:
 [Source N] Title — Author/Outlet (Year)
 URL: <url>
 Key finding: <1-2 sentence summary>
 
-After collecting all sources, end your message with: RESEARCH COMPLETE"""
+Do NOT write any summary or RESEARCH COMPLETE until you have called all 5 tools above.
+After listing all sources, end with: RESEARCH COMPLETE"""
+
+    default_system_message_knowledge = """You are a Research Specialist in Human-Computer Interaction (HCI).
+
+Your responsibility: Follow the Planner's research plan and provide 6-8 well-sourced research findings from your knowledge.
+
+For each source, use this exact format:
+[Source N] Title — Author/Outlet (Year)
+URL: (if known, otherwise omit)
+Key finding: <1-2 sentence summary of the main contribution or finding>
+
+Requirements:
+- Cover both academic papers and practitioner resources
+- Prioritize sources from 2019 onward where possible
+- Include seminal works if highly relevant
+- Address each sub-topic from the Planner's plan
+- Be specific: include author names, publication venues, and concrete findings
+
+After listing all sources, end with: RESEARCH COMPLETE"""
 
     # Use custom prompt from config if available
     custom_prompt = agent_config.get("system_prompt", "")
     if custom_prompt and custom_prompt != "You are a researcher. Find and collect relevant information from various sources.":
         system_message = custom_prompt
     else:
-        system_message = default_system_message
+        system_message = default_system_message_tools if use_tools else default_system_message_knowledge
 
-    # Wrap tools in FunctionTool
-    web_search_tool = FunctionTool(
-        web_search,
-        description="Search the web for articles, blog posts, and general information. Returns formatted search results with titles, URLs, and snippets."
-    )
-    
-    paper_search_tool = FunctionTool(
-        paper_search,
-        description="Search academic papers on Semantic Scholar. Returns papers with authors, abstracts, citation counts, and URLs. Use year_from parameter to filter recent papers."
-    )
 
-    # Create the researcher with tool access
+    tools = []
+    if use_tools:
+        tools = [
+            FunctionTool(
+                web_search,
+                description="Search the web for articles, blog posts, and general information. Returns formatted search results with titles, URLs, and snippets."
+            ),
+            FunctionTool(
+                paper_search,
+                description="Search academic papers on Semantic Scholar. Returns papers with authors, abstracts, citation counts, and URLs. Use year_from parameter to filter recent papers."
+            ),
+        ]
+
     researcher = AssistantAgent(
         name="Researcher",
         model_client=model_client,
-        tools=[web_search_tool, paper_search_tool],
-        description="Gathers evidence from web and academic sources using search tools",
+        tools=tools if tools else None,
+        description="Gathers evidence from web and academic sources",
         system_message=system_message,
     )
-    
+
     return researcher
 
 
@@ -250,6 +297,7 @@ After completing the draft, end your message with: DRAFT COMPLETE"""
         system_message = custom_prompt
     else:
         system_message = default_system_message
+
 
     writer = AssistantAgent(
         name="Writer",
@@ -309,6 +357,7 @@ Decision:
     else:
         system_message = default_system_message
 
+
     critic = AssistantAgent(
         name="Critic",
         model_client=model_client,
@@ -340,12 +389,17 @@ def create_research_team(config: Dict[str, Any]) -> RoundRobinGroupChat:
     
     # Create termination condition
     termination = TextMentionTermination("TERMINATE")
-    
+
+    # Cap at 12 turns (3 full Planner→Researcher→Writer→Critic cycles).
+    # Without this, a non-terminating Critic causes an infinite loop.
+    max_turns = config.get("system", {}).get("max_iterations", 10) + 2
+
     # Create team with round-robin ordering
     team = RoundRobinGroupChat(
         participants=[planner, researcher, writer, critic],
         termination_condition=termination,
+        max_turns=max_turns,
     )
-    
+
     return team
 

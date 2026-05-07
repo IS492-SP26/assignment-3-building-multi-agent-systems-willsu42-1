@@ -26,7 +26,7 @@
       "hardware improvements",
       "application domains"
     ],
-    "ground_truth": null,
+    "ground_truth": "AR usability has advanced through improved hand and eye-tracking interactions, lighter headsets, and expanded applications in enterprise, education, and healthcare; recent HCI research highlights reduced user fatigue and better spatial interaction models.",
     "expected_sources": [
       "recent AR research papers",
       "CHI conference proceedings",
@@ -44,7 +44,7 @@
       "transparency",
       "student autonomy"
     ],
-    "ground_truth": null,
+    "ground_truth": "Ethical AI in education must address algorithmic bias in assessments, student data privacy, equitable access across socioeconomic groups, transparency of automated grading, and preserving student agency in AI-mediated learning.",
     "expected_sources": [
       "ethics papers",
       "educational technology research",
@@ -61,7 +61,7 @@
       "user testing",
       "physiological measures"
     ],
-    "ground_truth": null,
+    "ground_truth": "UX in mobile apps is measured through self-report questionnaires (e.g., UEQ, SUS), behavioral analytics (session recordings, funnel analysis), lab-based usability tests, and physiological sensors; each approach captures different aspects of hedonic and pragmatic quality.",
     "expected_sources": [
       "UX research papers",
       "methodological papers",
@@ -78,7 +78,7 @@
       "clinical decision support",
       "privacy concerns"
     ],
-    "ground_truth": null,
+    "ground_truth": "Recent advances include LLM-powered symptom checkers, mental health support chatbots, and clinical decision support systems; key challenges are ensuring medical accuracy, maintaining patient privacy under HIPAA, and preventing over-reliance on AI-generated advice.",
     "expected_sources": [
       "medical informatics papers",
       "healthcare AI research",
@@ -95,7 +95,7 @@
       "WCAG guidelines",
       "responsive design"
     ],
-    "ground_truth": null,
+    "ground_truth": "Web accessibility is governed by WCAG guidelines targeting keyboard navigation and screen-reader compatibility, while mobile accessibility focuses on touch target sizing, gesture alternatives, and platform-specific APIs (iOS VoiceOver, Android TalkBack); responsive design bridges both but requires platform-specific adaptations.",
     "expected_sources": [
       "accessibility guidelines",
       "comparative studies",
@@ -112,7 +112,7 @@
       "user comprehension",
       "design guidelines"
     ],
-    "ground_truth": null,
+    "ground_truth": "Best practices include using error bars, confidence intervals, gradient shading, or animated ensemble displays; research shows that explicit uncertainty labels improve decision-making, while violin and fan charts outperform simple error bars for communicating distributional uncertainty.",
     "expected_sources": [
       "visualization research",
       "perceptual studies",
@@ -129,7 +129,7 @@
       "error handling",
       "user preferences"
     ],
-    "ground_truth": null,
+    "ground_truth": "Voice interfaces for elderly users should accommodate slower speech rates, age-related vocal changes, and cognitive load by providing clear confirmations, graceful error recovery, and simplified command vocabularies; studies recommend explicit prompts and reduced menu depth.",
     "expected_sources": [
       "aging and technology research",
       "voice UI papers",
@@ -146,7 +146,7 @@
       "designer collaboration",
       "tool capabilities"
     ],
-    "ground_truth": null,
+    "ground_truth": "AI-driven prototyping tools now support text-to-UI generation, automated layout suggestions, and real-time design feedback; emerging tools like Galileo AI and Uizard integrate LLMs to accelerate wireframing while raising concerns about designer skill atrophy and homogenization of design outputs.",
     "expected_sources": [
       "design tools research",
       "AI in design papers",
@@ -163,7 +163,7 @@
       "user preferences",
       "design adaptations"
     ],
-    "ground_truth": null,
+    "ground_truth": "Cultural dimensions (Hofstede's individualism, power distance, uncertainty avoidance) shape preferences for color symbolism, information density, navigation hierarchy, and social features; effective cross-cultural design requires both localization and culturalization beyond simple text translation.",
     "expected_sources": [
       "cross-cultural HCI research",
       "cultural studies",

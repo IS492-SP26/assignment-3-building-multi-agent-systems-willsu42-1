@@ -66,7 +66,7 @@ class SystemEvaluator:
 
     async def evaluate_system(
         self,
-        test_queries_path: str = "data/test_queries.json"
+        test_queries_path: str = "data/example_queries.json"
     ) -> Dict[str, Any]:
         """
         Run full system evaluation.

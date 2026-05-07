@@ -13,6 +13,12 @@ Workflow:
 
 import logging
 import asyncio
+import re
+
+
+def _strip_thinking(text: str) -> str:
+    """Remove <think>...</think> blocks emitted by Qwen3 thinking mode."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 from typing import Dict, Any, List, Optional
 
 from src.agents.autogen_agents import create_research_team
@@ -180,6 +186,12 @@ Work through the following steps in order:
                 if isinstance(event, TaskResult):
                     break
 
+                self.logger.debug(
+                    "stream event: type=%s source=%s",
+                    type(event).__name__,
+                    getattr(event, "source", "N/A"),
+                )
+
                 content = event.content if hasattr(event, "content") else None
                 if content is None:
                     # Pure internal event with no user-visible content — skip.
@@ -187,6 +199,7 @@ Work through the following steps in order:
                 if not isinstance(content, str):
                     # Tool call / tool result messages carry structured lists.
                     content = str(content)
+                content = _strip_thinking(content)
                 messages.append({
                     "source": getattr(event, "source", "unknown"),
                     "content": content,
@@ -196,12 +209,17 @@ Work through the following steps in order:
             # Try to recover the model's text from a tool_use_failed error body.
             failed_text = self._extract_failed_generation(e)
             if failed_text:
+                failed_text = _strip_thinking(failed_text)
+                # Attribute the recovered text to whichever agent was last active,
+                # falling back to Writer (the most likely agent to produce free text).
+                last_agent = messages[-1]["source"] if messages else "Writer"
                 self.logger.warning(
                     "tool_use_failed error from provider — appending recovered "
-                    "text to %d already-captured messages.", len(messages)
+                    "text (source=%s) to %d already-captured messages.",
+                    last_agent, len(messages),
                 )
                 messages.append({
-                    "source": "Writer",
+                    "source": last_agent,
                     "content": failed_text,
                     "type": "TextMessage",
                 })
@@ -277,6 +295,7 @@ Work through the following steps in order:
         handoff_signals = ["PLAN COMPLETE", "RESEARCH COMPLETE", "DRAFT COMPLETE", "TERMINATE"]
 
         def strip_signals(text: str) -> str:
+            text = _strip_thinking(text)
             for signal in handoff_signals:
                 text = text.replace(signal, "")
             return text.strip()

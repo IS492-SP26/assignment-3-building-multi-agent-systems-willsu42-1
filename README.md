@@ -136,25 +136,25 @@ By default, this path only runs a simple test query until students complete the 
 - [NeMo Guardrails](https://docs.nvidia.com/nemo/guardrails/)
 
 ## Demo  
-UI
+- UI
 <img width="1506" height="798" alt="image" src="https://github.com/user-attachments/assets/8fcd287b-1ea4-4c54-b295-53da4d1e5403" />  
-Using one of the example queries to run  
+- Using one of the example queries to run  
 <img width="1493" height="767" alt="image" src="https://github.com/user-attachments/assets/63a1f89b-891c-4ea5-9c8e-7e5704ffd51d" />  
-Get response from AI model(using Groq here)
+- Get response from AI model(using Groq here)
 <img width="1497" height="831" alt="image" src="https://github.com/user-attachments/assets/b43c0476-c389-45c9-bc31-95075b344adc" />  
-Response the Citations  
+- Response the Citations  
 <img width="1498" height="838" alt="image" src="https://github.com/user-attachments/assets/e5c0fc58-1ba0-467e-aef3-d35fc328074c" />  
-Show how many sources used and quality score  
+- Show how many sources used and quality score  
 <img width="1444" height="837" alt="image" src="https://github.com/user-attachments/assets/bfe30b8c-0418-4e44-aeac-4f3b60c0b371" />  
-Agent traces  
+- Agent traces  
 <img width="1114" height="594" alt="image" src="https://github.com/user-attachments/assets/f83f80f2-ad61-453a-85b5-b327155a513f" />
-Detail of agent traces - User & Planner  
+- Detail of agent traces - User & Planner  
 <img width="632" height="785" alt="image" src="https://github.com/user-attachments/assets/912f8f01-4a32-4240-840f-76ad5eaed199" />  
-Detail of agent traces - Researcher  
+- Detail of agent traces - Researcher  
 <img width="609" height="764" alt="image" src="https://github.com/user-attachments/assets/b88acdc4-8799-4b59-96ed-dc786e8db12a" />  
-Detail of agent traces - Writer & Critic  
+- Detail of agent traces - Writer & Critic  
 <img width="609" height="678" alt="image" src="https://github.com/user-attachments/assets/cdb1f7ee-2dc2-4274-b86a-69d8b47e21f9" />  
-Query history & safety log  
+- Query history & safety log  
 <img width="1046" height="540" alt="image" src="https://github.com/user-attachments/assets/0d36b9fe-84b0-42f4-b7a0-3e2416a19071" />
 
 

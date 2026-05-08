@@ -166,6 +166,11 @@ By default, this path only runs a simple test query until students complete the 
 - Query history & safety log  
 <img width="1046" height="540" alt="image" src="https://github.com/user-attachments/assets/0d36b9fe-84b0-42f4-b7a0-3e2416a19071" />
 
+- Guardrail Test  
+<img width="703" height="799" alt="image" src="https://github.com/user-attachments/assets/94fe434f-bf93-4975-83cc-baaf841e0b61" />  
+<img width="789" height="179" alt="image" src="https://github.com/user-attachments/assets/b0a4ac81-61ee-4883-a67f-2e0ba3992706" />
+
+
 
 
 
